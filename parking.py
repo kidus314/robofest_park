@@ -1,10 +1,4 @@
-# sudo apt-get install libatlas-base-dev libopenjp2-7 libtiff5
-# pip3 install tensorflow tensorflow-lite opencv-python-headless picamera
-# 
-# !wget https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip
-
-# !unzip coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip -d sample_model
-import tensorflow as tf
+from tflite_runtime.interpreter import Interpreter
 import cv2
 import numpy as np
 from picamera.array import PiRGBArray
@@ -12,18 +6,16 @@ from picamera import PiCamera
 import time
 from datetime import datetime
 
-# Raspberry Pi Camera Configuration
-CAMERA_RESOLUTION = (640, 480)  # Max resolution for Pi Camera V2
-CAMERA_FRAMERATE = 15           # Adjust based on Pi model
+# Camera Configuration
+CAMERA_RESOLUTION = (640, 480)
+CAMERA_FRAMERATE = 15
 
-# Define 8 ROIs (x1, y1, x2, y2) - adjust these values for your setup
+# Define 8 ROIs (x1, y1, x2, y2) - adjust these coordinates
 ROIs = [
-    # Top row
     (50, 100, 150, 200),   # ROI 1
     (180, 100, 280, 200),  # ROI 2
     (310, 100, 410, 200),  # ROI 3
     (440, 100, 540, 200),  # ROI 4
-    # Bottom row
     (50, 300, 150, 400),   # ROI 5
     (180, 300, 280, 400),  # ROI 6
     (310, 300, 410, 400),  # ROI 7
@@ -32,11 +24,11 @@ ROIs = [
 
 # Model Configuration
 MODEL_PATH = "sample_model/detect.tflite"
-CONFIDENCE_THRESHOLD = 0.3  # Minimum detection confidence
-IOU_THRESHOLD = 0.2         # Intersection-over-Union threshold
+CONF_THRESHOLD = 0.3  # Minimum detection confidence
+IOU_THRESHOLD = 0.2   # Intersection-over-Union threshold
 
 def initialize_camera():
-    """Initialize Raspberry Pi camera module"""
+    """Set up Raspberry Pi camera module"""
     camera = PiCamera()
     camera.resolution = CAMERA_RESOLUTION
     camera.framerate = CAMERA_FRAMERATE
@@ -44,15 +36,15 @@ def initialize_camera():
     time.sleep(0.1)  # Camera warm-up
     return camera, raw_capture
 
-def load_model():
-    """Load TFLite model and allocate tensors"""
-    interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
+def load_tflite_model():
+    """Load and configure TFLite model"""
+    interpreter = Interpreter(model_path=MODEL_PATH)
     interpreter.allocate_tensors()
     return interpreter
 
 # Initialize components
 camera, raw_capture = initialize_camera()
-interpreter = load_model()
+interpreter = load_tflite_model()
 
 # Get model details
 input_details = interpreter.get_input_details()
@@ -60,11 +52,11 @@ output_details = interpreter.get_output_details()
 
 # State tracking
 last_print_time = time.time()
-print_interval = 1  # Seconds between status updates
+print_interval = 1  # Seconds between updates
 prev_status = [False] * len(ROIs)
 
 def calculate_iou(boxA, boxB):
-    """Calculate Intersection over Union (IoU) between two boxes"""
+    """Calculate Intersection over Union between two boxes"""
     xA = max(boxA[0], boxB[0])
     yA = max(boxA[1], boxB[1])
     xB = min(boxA[2], boxB[2])
@@ -80,7 +72,7 @@ def process_frame(frame):
     """Process frame and detect objects in ROIs"""
     h, w = frame.shape[:2]
     
-    # Preprocess frame for model
+    # Preprocess for model
     resized = cv2.resize(frame, (300, 300))
     input_tensor = np.expand_dims(resized, axis=0).astype(np.uint8)
     
@@ -88,7 +80,7 @@ def process_frame(frame):
     interpreter.set_tensor(input_details[0]['index'], input_tensor)
     interpreter.invoke()
     
-    # Get results
+    # Get outputs
     boxes = interpreter.get_tensor(output_details[0]['index'])[0]
     scores = interpreter.get_tensor(output_details[2]['index'])[0]
     
@@ -96,23 +88,23 @@ def process_frame(frame):
     
     # Process detections
     for i, score in enumerate(scores):
-        if score < CONFIDENCE_THRESHOLD:
+        if score < CONF_THRESHOLD:
             continue
             
-        # Convert normalized coordinates to pixel values
+        # Convert normalized coordinates to pixels
         ymin, xmin, ymax, xmax = boxes[i]
         xmin = int(xmin * w)
         ymin = int(ymin * h)
         xmax = int(xmax * w)
         ymax = int(ymax * h)
         
-        # Check against all ROIs
+        # Check ROI overlaps
         for idx, roi in enumerate(ROIs):
             if calculate_iou((xmin, ymin, xmax, ymax), roi) > IOU_THRESHOLD:
                 status[idx] = True
-                break  # Each detection can only trigger one ROI
+                break
     
-    # Visual feedback
+    # Draw ROI boxes and labels
     for idx, (x1, y1, x2, y2) in enumerate(ROIs):
         color = (0, 255, 0) if not status[idx] else (0, 0, 255)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
@@ -134,24 +126,24 @@ try:
         image = frame.array
         processed, curr_status = process_frame(image)
         
-        # Display monitoring feed
-        cv2.imshow('Pi ROI Monitor', processed)
+        # Display feed
+        cv2.imshow('ROI Monitoring System', processed)
         
-        # Update console only on status change or time interval
+        # Update console on status change or interval
         if curr_status != prev_status or (time.time() - last_print_time) > print_interval:
             print_status(curr_status)
             prev_status = curr_status.copy()
             last_print_time = time.time()
         
-        # Clear stream for next frame
+        # Prepare for next frame
         raw_capture.truncate(0)
         
-        # Exit on Q key press
+        # Exit on Q key
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
 finally:
-    # Cleanup resources
+    # Cleanup
     camera.close()
     cv2.destroyAllWindows()
     print("\nMonitoring stopped. Final status:")
