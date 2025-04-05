@@ -1,7 +1,9 @@
 # sudo apt-get install libatlas-base-dev libopenjp2-7 libtiff5
 # pip3 install tensorflow tensorflow-lite opencv-python-headless picamera
+# 
+# !wget https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip
 
-
+# !unzip coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip -d sample_model
 import tensorflow as tf
 import cv2
 import numpy as np
